@@ -1,3 +1,4 @@
+// Screen/JoinClassScreen.js
 import React, { useState } from "react";
 import {
   View,
@@ -26,6 +27,9 @@ const JoinClassScreen = ({ navigation }) => {
     setLoading(true);
     setSearchResult(null);
     try {
+      // --- DEBUGGING: Log the input ---
+      console.log("Searching for admin with USN:", adminIdQuery.trim());
+
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("id, username")
@@ -33,20 +37,34 @@ const JoinClassScreen = ({ navigation }) => {
         .eq("role", "admin")
         .single();
 
+      // --- DEBUGGING: Log the profile query result ---
+      console.log("Profile query result:", profile, "Error:", profileError);
+
       if (profileError || !profile) {
         throw new Error("Admin not found with that USN.");
       }
+
+      // --- DEBUGGING: Log the found admin ID ---
+      console.log("Found admin profile, ID:", profile.id);
 
       // MODIFIED: Fetch a LIST of classes, not a single one. Removed .maybeSingle()
       const { data: adminClasses, error: classError } = await supabase
         .from("classes")
         .select("id, class_name")
-        .eq("admin_id", profile.id);
+        .eq("admin_id", profile.id); // Use profile.id
+
+      // --- DEBUGGING: Log the classes query result ---
+      console.log("Classes query result:", adminClasses, "Error:", classError);
 
       if (classError) throw classError;
 
+      // --- DEBUGGING: Log the number of classes found ---
+      console.log(`Found ${adminClasses?.length || 0} classes for admin ${profile.username}`);
+
       setSearchResult({ admin: profile, classesList: adminClasses || [] });
     } catch (error) {
+      // --- DEBUGGING: Log the full error ---
+      console.error("Search Failed:", error);
       Alert.alert("Search Failed", error.message);
     } finally {
       setLoading(false);

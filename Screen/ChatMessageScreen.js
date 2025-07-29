@@ -45,9 +45,12 @@ const ChatMessageScreen = ({ route }) => {
         `
         )
         .eq("class_id", classInfo.id)
+        // Keep fetching newest first for efficient query
         .order("created_at", { ascending: false });
 
       if (!error) {
+        // Map messages and then REVERSE the array
+        // So the newest fetched message is LAST in the state array
         const formattedMessages = data.map((msg) => ({
           _id: msg.id,
           text: msg.text,
@@ -55,9 +58,8 @@ const ChatMessageScreen = ({ route }) => {
           user: {
             _id: msg.user_id,
             name: msg.profiles?.username || "Unknown",
-            // avatar: msg.profiles?.avatar_url, // Handle if needed
           },
-        }));
+        })).reverse(); // <-- REVERSE HERE
         setMessages(formattedMessages);
       } else {
         console.error("Error fetching messages:", error);
@@ -70,7 +72,6 @@ const ChatMessageScreen = ({ route }) => {
 
   // Set up Supabase real-time subscription
   useEffect(() => {
-    // Ensure classInfo.id is valid before subscribing
     if (!classInfo.id) return;
 
     const channel = supabase
@@ -84,14 +85,12 @@ const ChatMessageScreen = ({ route }) => {
           filter: `class_id=eq.${classInfo.id}`,
         },
         async (payload) => {
-          // Fetch sender profile details
           const { data: profileData, error: profileError } = await supabase
             .from("profiles")
             .select("username, avatar_url")
             .eq("id", payload.new.user_id)
             .single();
 
-          // Prepare new message object
           const newMessage = {
             _id: payload.new.id,
             text: payload.new.text,
@@ -99,30 +98,28 @@ const ChatMessageScreen = ({ route }) => {
             user: {
               _id: payload.new.user_id,
               name: profileError ? "Unknown" : profileData.username,
-              // avatar: profileError ? null : profileData.avatar_url,
             },
           };
 
-          // Update state with the new message (prepend to list)
-          setMessages((previousMessages) => [newMessage, ...previousMessages]);
+          // APPEND the new message to the END of the list
+          setMessages((previousMessages) => [...previousMessages, newMessage]);
         }
       )
       .subscribe();
 
-    // Cleanup function to remove the subscription
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [classInfo.id]); // Re-subscribe if classInfo.id changes
+  }, [classInfo.id]);
 
   // Handle sending a new message
   const handleSend = useCallback(async () => {
     if (inputText.trim().length === 0) {
-      return; // Don't send empty messages
+      return;
     }
 
     const textToSend = inputText.trim();
-    setInputText(""); // Clear input field immediately
+    setInputText("");
 
     const { error } = await supabase.from("messages").insert({
       text: textToSend,
@@ -133,11 +130,31 @@ const ChatMessageScreen = ({ route }) => {
     if (error) {
       console.error("Error sending message:", error);
       Alert.alert("Error", `Error sending message: ${error.message}`);
-      // Optionally, re-add the message to the input field or local state if sending failed
       setInputText(textToSend);
     }
-    // Note: The real-time subscription will add the message to the list once it's confirmed by the database.
-  }, [inputText, classInfo.id, currentUser.id]); // Dependencies for useCallback
+    // The real-time subscription handles adding the message to the state
+  }, [inputText, classInfo.id, currentUser.id]);
+
+  // --- Scroll to Bottom When Messages Update ---
+  useEffect(() => {
+    // Use requestAnimationFrame or setTimeout for better timing
+    const scrollAction = () => {
+        if (scrollViewRef.current) {
+            scrollViewRef.current.scrollToEnd({ animated: true });
+        }
+    };
+    // Option 1: Small delay
+    const timerId = setTimeout(scrollAction, 100); // Adjust delay if needed (50ms, 150ms)
+
+    // // Option 2: Use requestAnimationFrame (might be more reliable)
+    // const frameId = requestAnimationFrame(scrollAction);
+
+    // Cleanup: Clear timeout/requestAnimationFrame if component unmounts or effect re-runs
+    return () => {
+        clearTimeout(timerId);
+        // cancelAnimationFrame(frameId); // If using requestAnimationFrame
+    };
+  }, [messages]); // Depend on messages array
 
   // --- Basic UI Rendering ---
   const renderMessage = (message) => {
@@ -170,18 +187,18 @@ const ChatMessageScreen = ({ route }) => {
 
   return (
     <ImageBackground
-      source={require("../assets/ImageBackground.png")} // Ensure this path is correct
+      source={require("../assets/ImageBackground.png")}
       style={styles.container}
-      imageStyle={styles.backgroundImage}
+      imageStyle={[styles.backgroundImage, { opacity: 0.1 }]}
     >
       {/* Messages Display Area */}
       <View style={styles.messagesContainer}>
+        {/* Ensure flex: 1 and contentContainerStyle handles padding if needed */}
         <ScrollView
           ref={scrollViewRef}
-          onContentSizeChange={() =>
-            scrollViewRef.current?.scrollToEnd({ animated: true })
-          }
           style={styles.messagesScrollView}
+          // Optional: Ensure content starts from the top
+          contentContainerStyle={{ flexGrow: 1, justifyContent: 'flex-end' }}
         >
           {messages.map(renderMessage)}
         </ScrollView>
@@ -211,21 +228,19 @@ const ChatMessageScreen = ({ route }) => {
   );
 };
 
-// --- Basic Styles ---
+// --- Basic Styles (Keep your existing styles) ---
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    // padding: 10, // Adjust padding if needed
   },
   backgroundImage: {
-    // Add styles for the background image if needed
+    // ...
   },
   messagesContainer: {
     flex: 1,
-    // padding: 10, // Adjust padding if needed
   },
   messagesScrollView: {
-    // padding: 10, // Adjust padding if needed
+    // padding: 10, // Adjust if needed, consider contentContainerStyle
   },
   messageContainer: {
     marginBottom: 10,
@@ -249,11 +264,11 @@ const styles = StyleSheet.create({
     borderRadius: 15,
   },
   ownBubble: {
-    backgroundColor: '#dcf8c6', // Light green for own messages
+    backgroundColor: '#dcf8c6',
     borderBottomRightRadius: 0,
   },
   otherBubble: {
-    backgroundColor: '#ffffff', // White for other messages
+    backgroundColor: '#ffffff',
     borderBottomLeftRadius: 0,
   },
   messageText: {
@@ -268,7 +283,7 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
     padding: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.8)', // Semi-transparent background
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
     alignItems: 'center',
   },
   textInput: {
@@ -279,10 +294,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     paddingVertical: 10,
     fontSize: 16,
-    maxHeight: 100, // Limit height for multiline input
+    maxHeight: 100,
   },
   sendButton: {
-    backgroundColor: '#007AFF', // Blue color, adjust as needed
+    backgroundColor: '#007AFF',
     borderRadius: 20,
     paddingVertical: 10,
     paddingHorizontal: 20,

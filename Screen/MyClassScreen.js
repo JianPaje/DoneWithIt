@@ -10,11 +10,11 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
-  Image, // Make sure Image is imported
+  Image,
 } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
 import { supabase } from "../supabaseClient";
-import styles from "../Style/Homestyle"; // Import the main stylesheet
+import styles from "../Style/Homestyle";
 
 const MyClassScreen = () => {
   const [loading, setLoading] = useState(true);
@@ -24,7 +24,7 @@ const MyClassScreen = () => {
   const [classMembers, setClassMembers] = useState([]);
   const isFocused = useIsFocused();
 
-  // Fetches all class-related data
+  // Determine if the user is an admin or student
   const fetchClassData = useCallback(async () => {
     setLoading(true);
     try {
@@ -33,32 +33,48 @@ const MyClassScreen = () => {
       } = await supabase.auth.getUser();
       if (!user) throw new Error("No user found");
 
+      // Check if the user is an admin
       const { data: adminClass, error: classError } = await supabase
         .from("classes")
         .select("id, name")
         .eq("admin_id", user.id)
         .single();
 
-      if (classError || !adminClass) {
-        setLoading(false);
-        return;
+      if (adminClass) {
+        // User is an admin
+        setClassInfo(adminClass);
+
+        const { data: members, error: membersError } = await supabase
+          .from("profiles")
+          .select("id, username, avatar_url, lrn")
+          .eq("class_id", adminClass.id);
+        if (membersError) throw membersError;
+        setClassMembers(members);
+
+        const { data: invites, error: invitesError } = await supabase
+          .from("class_invitations")
+          .select("id, student_lrn")
+          .eq("class_id", adminClass.id)
+          .eq("status", "pending");
+        if (invitesError) throw invitesError;
+        setPendingInvites(invites);
+      } else {
+        // User is a student
+        const { data: studentClasses, error: studentError } = await supabase
+          .from("profiles")
+          .select("class_id, username, avatar_url, lrn")
+          .eq("id", user.id)
+          .single();
+
+        if (studentClasses && studentClasses.class_id) {
+          setClassInfo({ id: studentClasses.class_id });
+        } else {
+          Alert.alert(
+            "Error",
+            "You haven't joined any classes yet. Please join a class first."
+          );
+        }
       }
-      setClassInfo(adminClass);
-
-      const { data: members, error: membersError } = await supabase
-        .from("profiles")
-        .select("id, username, avatar_url, lrn")
-        .eq("class_id", adminClass.id);
-      if (membersError) throw membersError;
-      setClassMembers(members);
-
-      const { data: invites, error: invitesError } = await supabase
-        .from("class_invitations")
-        .select("id, student_lrn")
-        .eq("class_id", adminClass.id)
-        .eq("status", "pending");
-      if (invitesError) throw invitesError;
-      setPendingInvites(invites);
     } catch (error) {
       Alert.alert("Error", "Could not fetch class data. " + error.message);
     } finally {
@@ -74,7 +90,6 @@ const MyClassScreen = () => {
 
   // Handles sending an invitation
   const handleInviteStudent = async () => {
-    // ... This function's logic remains exactly the same
     if (!lrn.trim()) {
       Alert.alert("Invalid Input", "Please enter a student's LRN.");
       return;
@@ -149,7 +164,6 @@ const MyClassScreen = () => {
   );
 
   if (loading) {
-    // MODIFIED: Re-using general container style for centering
     return (
       <View style={[styles.container, { justifyContent: "center" }]}>
         <ActivityIndicator size="large" color="#4F74B8" />
@@ -158,7 +172,6 @@ const MyClassScreen = () => {
   }
 
   if (!classInfo) {
-    // MODIFIED: Re-using general container style for centering
     return (
       <View style={[styles.container, { justifyContent: "center" }]}>
         <Text style={styles.title}>No Class Found</Text>
@@ -168,7 +181,6 @@ const MyClassScreen = () => {
   }
 
   return (
-    // MODIFIED: Using new styles from Homestyle.js
     <ScrollView style={styles.myClassContainer}>
       <Text style={styles.myClassTitle}>Manage My Class 🏫</Text>
 

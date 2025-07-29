@@ -1,4 +1,5 @@
-import React, { useState, useCallback } from "react";
+// Screen/AdminMyClassScreen.js
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,7 +8,6 @@ import {
   Alert,
   ActivityIndicator,
   StyleSheet,
-  Image,
 } from "react-native";
 import { supabase } from "../supabaseClient";
 import styles from "../Style/Homestyle";
@@ -40,6 +40,7 @@ const AdminMyClassScreen = () => {
       setClasses(classData || []);
     } catch (error) {
       Alert.alert("Error", "Could not fetch class data: " + error.message);
+      console.error("Fetch Admin Classes Error:", error); // Good for debugging
     } finally {
       setLoading(false);
     }
@@ -52,10 +53,11 @@ const AdminMyClassScreen = () => {
     }, [fetchAdminClasses])
   );
 
+  // --- MODIFIED: Handle class deletion by first deleting related messages ---
   const handleDeleteClass = async (classId, className) => {
     Alert.alert(
       "Delete Class",
-      `Are you sure you want to permanently delete "${className}"? All student data associated with it will be lost.`,
+      `Are you sure you want to permanently delete "${className}"? All student data and associated messages will be lost.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -63,14 +65,35 @@ const AdminMyClassScreen = () => {
           style: "destructive",
           onPress: async () => {
             try {
-              const { error } = await supabase
+              // 1. Delete all messages related to this class first
+              // This removes the foreign key constraint issue
+              console.log(`Deleting messages for class ID: ${classId}`); // Debug log
+              const { error: messagesError } = await supabase
+                .from("messages")
+                .delete()
+                .eq("class_id", classId);
+
+              if (messagesError) {
+                console.error("Error deleting messages:", messagesError); // Debug log
+                throw messagesError;
+              }
+              console.log(`Messages for class ID ${classId} deleted.`); // Debug log
+
+              // 2. Now safely delete the class itself
+              console.log(`Deleting class ID: ${classId}`); // Debug log
+              const { error: classError } = await supabase
                 .from("classes")
                 .delete()
                 .eq("id", classId);
 
-              if (error) throw error;
+              if (classError) {
+                 console.error("Error deleting class:", classError); // Debug log
+                 throw classError;
+              }
+              console.log(`Class ID ${classId} deleted.`); // Debug log
 
-              fetchAdminClasses(); // Refresh the list
+              // 3. Refresh the list shown to the admin
+              fetchAdminClasses();
             } catch (error) {
               Alert.alert("Error", "Could not delete class: " + error.message);
             }
@@ -80,13 +103,11 @@ const AdminMyClassScreen = () => {
     );
   };
 
-  if (loading) {
+  if (loading && classes.length === 0) { // Show loading indicator only initially
     return (
-      <ActivityIndicator
-        style={{ flex: 1, alignSelf: "center" }}
-        size="large"
-        color="#4F74B8"
-      />
+      <View style={[styles.container, { justifyContent: "center" }]}>
+        <ActivityIndicator size="large" color="#4F74B8" />
+      </View>
     );
   }
 
