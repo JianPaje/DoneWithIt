@@ -1,4 +1,5 @@
 // Screen/JoinClassScreen.js
+
 import React, { useState } from "react";
 import {
   View,
@@ -14,181 +15,163 @@ import { supabase } from "../supabaseClient";
 import styles from "../Style/Homestyle";
 
 const JoinClassScreen = ({ navigation }) => {
-  const [adminIdQuery, setAdminIdQuery] = useState("");
-  const [searchResult, setSearchResult] = useState(null);
+  const [adminQuery, setAdminQuery] = useState("");
+  const [foundClasses, setFoundClasses] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [requestLoading, setRequestLoading] = useState(null); // Will store the ID of the class being requested
+  const [searchPerformed, setSearchPerformed] = useState(false);
 
-  const handleSearch = async () => {
-    if (!adminIdQuery.trim()) {
-      Alert.alert("Error", "Please enter an Admin USN.");
+  const handleSearchAdmin = async () => {
+    if (!adminQuery.trim()) {
+      Alert.alert("Validation Error", "Please enter an Admin's USN.");
       return;
     }
     setLoading(true);
-    setSearchResult(null);
+    setSearchPerformed(true);
+    setFoundClasses([]);
+
     try {
-      // --- DEBUGGING: Log the input ---
-      console.log("Searching for admin with USN:", adminIdQuery.trim());
-
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("id, username")
-        .eq("school_id", adminIdQuery.trim())
-        .eq("role", "admin")
-        .single();
-
-      // --- DEBUGGING: Log the profile query result ---
-      console.log("Profile query result:", profile, "Error:", profileError);
-
-      if (profileError || !profile) {
-        throw new Error("Admin not found with that USN.");
-      }
-
-      // --- DEBUGGING: Log the found admin ID ---
-      console.log("Found admin profile, ID:", profile.id);
-
-      // MODIFIED: Fetch a LIST of classes, not a single one. Removed .maybeSingle()
-      const { data: adminClasses, error: classError } = await supabase
+      // --- FINAL MODIFIED QUERY ---
+      // We explicitly name the foreign key relationship "admin_id" to resolve the ambiguity.
+      // The syntax is foreign_table!foreign_key_column!join_type(...)
+      const { data, error } = await supabase
         .from("classes")
-        .select("id, class_name")
-        .eq("admin_id", profile.id); // Use profile.id
+        .select(`id, class_name, profiles!admin_id!inner(username, school_id)`)
+        .eq("profiles.school_id", adminQuery.trim());
 
-      // --- DEBUGGING: Log the classes query result ---
-      console.log("Classes query result:", adminClasses, "Error:", classError);
+      if (error) throw error;
 
-      if (classError) throw classError;
+      if (!data || data.length === 0) {
+        // This part is now more reliable because the query is stricter.
+      }
+      
+      setFoundClasses(data);
 
-      // --- DEBUGGING: Log the number of classes found ---
-      console.log(`Found ${adminClasses?.length || 0} classes for admin ${profile.username}`);
-
-      setSearchResult({ admin: profile, classesList: adminClasses || [] });
     } catch (error) {
-      // --- DEBUGGING: Log the full error ---
-      console.error("Search Failed:", error);
-      Alert.alert("Search Failed", error.message);
+      Alert.alert("Search Error", error.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // MODIFIED: Function now accepts the classId to join
-  const handleJoinRequest = async (classId) => {
-    setRequestLoading(classId); // Set loading for this specific button
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) throw new Error("You must be logged in to join a class.");
+  const handleSelectClass = async (classId, className) => {
+    Alert.alert(
+      "Confirm Join Request",
+      `Do you want to send a request to join "${className}"?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Confirm",
+          onPress: async () => {
+            setLoading(true);
+            try {
+              const { data: { user } } = await supabase.auth.getUser();
+              if (!user) throw new Error("You must be logged in.");
 
-      const { error } = await supabase.from("class_members").insert({
-        class_id: classId,
-        student_id: user.id,
-        status: "pending",
-      });
+              const { data: existing } = await supabase
+                .from("class_members")
+                .select("id")
+                .eq("class_id", classId)
+                .eq("student_id", user.id)
+                .maybeSingle();
 
-      if (error) {
-        if (error.code === "23505") {
-          throw new Error(
-            "You have already sent a request to join this class."
-          );
-        }
-        throw error;
-      }
+              if (existing) {
+                throw new Error("You are already in this class or have a pending request.");
+              }
 
-      Alert.alert("Success", "Your request to join the class has been sent!");
-      navigation.goBack();
-    } catch (error) {
-      Alert.alert("Request Failed", error.message);
-    } finally {
-      setRequestLoading(null);
-    }
+              const { error: insertError } = await supabase
+                .from("class_members")
+                .insert({ class_id: classId, student_id: user.id, status: "pending" });
+              
+              if (insertError) throw insertError;
+
+              Alert.alert("Request Sent!", `Your request to join "${className}" has been sent.`);
+              navigation.goBack();
+
+            } catch (error) {
+              Alert.alert("Error", error.message);
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
-  // ADDED: A new component to render each class in the list
   const renderClassItem = ({ item }) => (
-    <View style={localStyles.classRow}>
-      <Text style={localStyles.className}>{item.class_name}</Text>
-      <TouchableOpacity
-        style={styles.myClassButton}
-        onPress={() => handleJoinRequest(item.id)}
-        disabled={requestLoading === item.id}
-      >
-        <Text style={styles.myClassButtonText}>
-          {requestLoading === item.id ? "Sending..." : "Request to Join"}
+    <TouchableOpacity
+      style={styles.myClassCard}
+      onPress={() => handleSelectClass(item.id, item.class_name)}
+      disabled={loading}
+    >
+      <Text style={styles.myClassSectionTitle}>{item.class_name}</Text>
+      {item.profiles && (
+        <Text style={styles.myClassLrn}>
+          Taught by: {item.profiles.username}
         </Text>
-      </TouchableOpacity>
-    </View>
+      )}
+    </TouchableOpacity>
   );
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Join a Class</Text>
       <Text style={styles.subtitle}>
-        Enter the USN of the Admin whose class you want to join.
+        Enter the USN of the admin you're looking for.
       </Text>
 
-      <TextInput
-        style={styles.input}
-        placeholder="Enter Admin's USN"
-        value={adminIdQuery}
-        onChangeText={setAdminIdQuery}
-        autoCapitalize="none"
-        keyboardType="numeric"
-      />
+      <View style={localStyles.searchContainer}>
+        <TextInput
+          style={localStyles.input}
+          placeholder="Admin USN"
+          value={adminQuery}
+          onChangeText={setAdminQuery}
+          keyboardType="numeric"
+          placeholderTextColor="#999"
+        />
+        <TouchableOpacity
+          style={localStyles.button}
+          onPress={handleSearchAdmin}
+          disabled={loading}
+        >
+           <Text style={styles.buttonText}>Search</Text>
+        </TouchableOpacity>
+      </View>
 
-      <TouchableOpacity
-        style={styles.button}
-        onPress={handleSearch}
-        disabled={loading}
-      >
-        <Text style={styles.buttonText}>
-          {loading ? "Searching..." : "Search"}
-        </Text>
-      </TouchableOpacity>
+      {loading && <ActivityIndicator size="large" color="#4F74B8" style={{ marginTop: 20 }} />}
 
-      {searchResult && (
-        <View style={[styles.myClassCard, localStyles.resultCard]}>
-          <Text style={styles.myClassSectionTitle}>Search Result</Text>
-          <Text style={styles.myClassUsername}>
-            Admin: {searchResult.admin.username}
-          </Text>
-
-          {/* MODIFIED: Display a list of classes if found */}
-          {searchResult.classesList.length > 0 ? (
-            <FlatList
-              data={searchResult.classesList}
-              renderItem={renderClassItem}
-              keyExtractor={(item) => item.id}
-              style={{ marginTop: 15 }}
-            />
-          ) : (
-            <Text style={[styles.myClassEmptyText, { marginTop: 15 }]}>
-              This admin has not created a class yet.
-            </Text>
-          )}
-        </View>
+      {!loading && searchPerformed && (
+         <FlatList
+          data={foundClasses}
+          renderItem={renderClassItem}
+          keyExtractor={(item) => item.id.toString()}
+          style={{ width: '100%', marginTop: 20 }}
+          ListEmptyComponent={
+            <Text style={styles.myClassEmptyText}>No classes found for this Admin USN.</Text>
+          }
+        />
       )}
     </View>
   );
 };
 
 const localStyles = StyleSheet.create({
-  resultCard: {
-    width: "100%",
-    marginTop: 20,
+  searchContainer: {
+    flexDirection: 'row',
+    width: '100%',
+    alignItems: 'center',
   },
-  classRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
+  input: {
+    ...styles.input,
+    flex: 1,
+    marginRight: 10,
+    marginBottom: 0,
   },
-  className: {
-    fontSize: 16,
-    color: "#333",
-  },
+  button: {
+    ...styles.button,
+    width: 100,
+    marginVertical: 0,
+  }
 });
 
 export default JoinClassScreen;

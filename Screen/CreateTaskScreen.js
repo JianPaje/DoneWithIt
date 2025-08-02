@@ -1,5 +1,5 @@
 // Screen/CreateTaskScreen.js
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -7,245 +7,336 @@ import {
   TextInput,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
+  StyleSheet,
+  Image,
+  FlatList,
 } from "react-native";
+import { supabase } from "../supabaseClient";
 import styles from "../Style/Homestyle";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 
-// --- Reusable Component for a Mission Card ---
-const MissionCard = ({
-  title,
-  tasks,
-  setTasks,
-  newTask,
-  setNewTask,
-  editingTask,
-  setEditingTask,
-  pointOptions,
-}) => {
-  const { id: editingId, text: editingText } = editingTask;
+const CreateTaskScreen = ({ route }) => {
+  const { classInfo } = route.params || {};
+  const navigation = useNavigation();
+  const [loading, setLoading] = useState(false);
+  const [newTaskName, setNewTaskName] = useState("");
+  const [newTaskPoints, setNewTaskPoints] = useState("100");
+  const [selectedClassId, setSelectedClassId] = useState(classInfo?.id || null);
+  const [availableClasses, setAvailableClasses] = useState([]);
+  const [studentsInClass, setStudentsInClass] = useState([]);
+  const [taskType, setTaskType] = useState("daily"); // Default task type
 
-  const handleAddTask = () => {
-    if (newTask.trim() === "") {
-      Alert.alert("Error", "Task description cannot be empty.");
+  // Fetch admin's classes
+  useFocusEffect(
+    useCallback(() => {
+      const fetchClasses = async () => {
+        try {
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+          if (!user) throw new Error("No user found");
+
+          const { data: classes, error: classesError } = await supabase
+            .from("classes")
+            .select("id, class_name")
+            .eq("admin_id", user.id);
+
+          if (classesError) throw classesError;
+          setAvailableClasses(classes || []);
+
+          // If a class was passed in, select it
+          if (classInfo?.id) {
+            setSelectedClassId(classInfo.id);
+          } else if (classes && classes.length > 0) {
+            // Default to the first class if none was passed
+            setSelectedClassId(classes[0].id);
+          }
+        } catch (error) {
+          Alert.alert("Error", "Could not fetch classes: " + error.message);
+        }
+      };
+
+      fetchClasses();
+    }, [classInfo?.id])
+  );
+
+  // Fetch students when class is selected
+  useEffect(() => {
+    const fetchStudents = async () => {
+      if (!selectedClassId) {
+        setStudentsInClass([]);
+        return;
+      }
+      try {
+        const { data: students, error: studentsError } = await supabase
+          .from("profiles")
+          .select("id, username")
+          .eq("class_id", selectedClassId)
+          .eq("role", "student");
+
+        if (studentsError) throw studentsError;
+        setStudentsInClass(students || []);
+      } catch (error) {
+        Alert.alert("Error", "Could not fetch students: " + error.message);
+      }
+    };
+
+    fetchStudents();
+  }, [selectedClassId]);
+
+  const handleCreateTask = async () => {
+    if (!selectedClassId) {
+      Alert.alert("Error", "Please select a class.");
       return;
     }
-    const taskToAdd = {
-      id: Date.now(),
-      text: newTask.trim(),
-      points: pointOptions ? pointOptions[0] : 100, // Default to the first option
-    };
-    setTasks([...tasks, taskToAdd]);
-    setNewTask("");
+    if (!newTaskName.trim()) {
+      Alert.alert("Error", "Please enter a task name.");
+      return;
+    }
+    const points = parseInt(newTaskPoints, 10);
+    if (isNaN(points) || points <= 0) {
+      Alert.alert("Error", "Please enter valid points (positive number).");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error("You must be logged in.");
+
+      // 1. Insert the new "master" task
+      const { data: newTaskData, error: taskError } = await supabase
+        .from("tasks")
+        .insert({
+          name: newTaskName.trim(),
+          points_value: points,
+          type: taskType, // Use the selected task type
+          created_by: user.id,
+          class_id: selectedClassId, // Associate task with the class
+        })
+        .select()
+        .single();
+
+      if (taskError) throw taskError;
+
+      // 2. Create an assignment in 'student_tasks' for each student in the class
+      if (studentsInClass.length > 0) {
+        const assignments = studentsInClass.map((student) => ({
+          task_id: newTaskData.id,
+          student_id: student.id,
+          is_completed: false,
+          // Add assigned_at timestamp
+          assigned_at: new Date().toISOString(),
+        }));
+
+        const { error: assignmentError } = await supabase
+          .from("student_tasks")
+          .insert(assignments);
+
+        if (assignmentError) throw assignmentError;
+      }
+
+      Alert.alert("Success", "Task created and assigned to students!");
+      // Reset form
+      setNewTaskName("");
+      setNewTaskPoints("100");
+      setTaskType("daily"); // Reset to default type if desired
+      // Optionally navigate back or stay on screen
+      // navigation.goBack();
+    } catch (error) {
+      Alert.alert("Error Creating Task", error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleSaveEdit = (taskId) => {
-    setTasks(
-      tasks.map((task) =>
-        task.id === taskId ? { ...task, text: editingText } : task
-      )
-    );
-    setEditingTask({ id: null, text: "" });
-  };
-
-  const handleDeleteTask = (taskId) => {
-    setTasks(tasks.filter((task) => task.id !== taskId));
-  };
-
-  const handleSetPoints = (taskId, points) => {
-    // Ensure points are numeric
-    const numericPoints = parseInt(points, 10) || 0;
-    setTasks(
-      tasks.map((task) =>
-        task.id === taskId ? { ...task, points: numericPoints } : task
-      )
-    );
-  };
-
-  return (
-    <View style={styles.taskCard}>
-      <View style={styles.taskSectionHeader}>
-        <Text style={styles.taskSectionTitle}>{title}</Text>
-      </View>
-
-      <View style={styles.addTaskContainer}>
-        <TextInput
-          style={styles.addTaskInput}
-          placeholder={`Add a new ${title.split(" ")[2].toLowerCase()}...`}
-          value={newTask}
-          onChangeText={setNewTask}
-        />
-        <TouchableOpacity style={styles.addTaskButton} onPress={handleAddTask}>
-          <Text style={styles.addTaskButtonText}>Add</Text>
-        </TouchableOpacity>
-      </View>
-
-      {tasks.map((task) => (
-        <View key={task.id} style={styles.taskItem}>
-          {editingId === task.id ? (
-            <TextInput
-              style={styles.taskEditTextInput}
-              value={editingText}
-              onChangeText={(text) => setEditingTask({ ...editingTask, text })}
-              autoFocus
-            />
-          ) : (
-            <Text style={styles.taskText}>{task.text}</Text>
-          )}
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
-            {editingId === task.id ? (
-              <TouchableOpacity onPress={() => handleSaveEdit(task.id)}>
-                <Text style={styles.taskIcon}>💾</Text>
-              </TouchableOpacity>
-            ) : (
-              <>
-                {/* Points Selection */}
-                {pointOptions ? (
-                  pointOptions.map((points) => (
-                    <TouchableOpacity
-                      key={points}
-                      style={[
-                        styles.pointsButton,
-                        task.points === points && styles.pointsButtonActive,
-                      ]}
-                      onPress={() => handleSetPoints(task.id, points)}
-                    >
-                      <Text style={styles.pointsButtonText}>{points}p</Text>
-                    </TouchableOpacity>
-                  ))
-                ) : (
-                  <View style={styles.pointsInputContainer}>
-                    <TextInput
-                      style={styles.pointsInput}
-                      value={String(task.points)}
-                      onChangeText={(points) =>
-                        handleSetPoints(task.id, points)
-                      }
-                      keyboardType="number-pad"
-                    />
-                    <Text style={styles.pointsInputLabel}>pts</Text>
-                  </View>
-                )}
-
-                <TouchableOpacity
-                  onPress={() =>
-                    setEditingTask({ id: task.id, text: task.text })
-                  }
-                >
-                  <Text style={styles.taskIcon}>📎</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => handleDeleteTask(task.id)}>
-                  <Text style={styles.taskIcon}>🗑️</Text>
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
-        </View>
-      ))}
-    </View>
+  // --- MODIFIED: This is the corrected pattern for useFocusEffect ---
+  useFocusEffect(
+    useCallback(() => {
+      // Any logic you want to run when the screen comes into focus
+      // For example, you might want to refresh class lists or student lists
+      // fetchAdminClasses(); // If you had a function like this
+    }, []) // Add dependencies if needed
   );
-};
 
-const CreateTaskScreen = ({ navigation }) => {
-  // State for Daily Tasks
-  const [dailyTasks, setDailyTasks] = useState([
-    { id: 1, text: "Attend Class on time", points: 10 },
-    { id: 2, text: "Submit an assignment on time", points: 20 },
-  ]);
-  const [newDailyTask, setNewDailyTask] = useState("");
-  const [editingDailyTask, setEditingDailyTask] = useState({
-    id: null,
-    text: "",
-  });
-
-  // State for Weekly Tasks
-  const [weeklyTasks, setWeeklyTasks] = useState([
-    { id: 3, text: "Read a book from the library", points: 100 },
-    { id: 4, text: "Lead a group discussion", points: 150 },
-  ]);
-  const [newWeeklyTask, setNewWeeklyTask] = useState("");
-  const [editingWeeklyTask, setEditingWeeklyTask] = useState({
-    id: null,
-    text: "",
-  });
-
-  // State for Event Tasks
-  const [eventTasks, setEventTasks] = useState([
-    { id: 5, text: "Participate in the science fair", points: 500 },
-  ]);
-  const [newEventTask, setNewEventTask] = useState("");
-  const [editingEventTask, setEditingEventTask] = useState({
-    id: null,
-    text: "",
-  });
-
-  const handleSaveAllTasks = () => {
-    // Here you would implement the logic to save all tasks to your database (e.g., Supabase)
-    console.log("Daily Tasks:", dailyTasks);
-    console.log("Weekly Tasks:", weeklyTasks);
-    console.log("Event Tasks:", eventTasks);
-    Alert.alert(
-      "Tasks Saved",
-      "All mission updates have been saved to the database."
-    );
-    navigation.goBack();
-  };
+  // --- ADDED: Function to render class picker buttons ---
+  const renderClassPickerItem = ({ item }) => (
+    <TouchableOpacity
+      style={[
+        localStyles.classPickerButton,
+        selectedClassId === item.id && localStyles.classPickerButtonSelected,
+      ]}
+      onPress={() => setSelectedClassId(item.id)}
+    >
+      <Text
+        style={[
+          localStyles.classPickerButtonText,
+          selectedClassId === item.id &&
+            localStyles.classPickerButtonTextSelected,
+        ]}
+      >
+        {item.class_name}
+      </Text>
+    </TouchableOpacity>
+  );
 
   return (
     <ScrollView style={styles.createTaskContainer}>
-      {/* --- Daily Tasks Section --- */}
-      <MissionCard
-        title="Generate New Daily Mission"
-        tasks={dailyTasks}
-        setTasks={setDailyTasks}
-        newTask={newDailyTask}
-        setNewTask={setNewDailyTask}
-        editingTask={editingDailyTask}
-        setEditingTask={setEditingDailyTask}
-        pointOptions={[10, 20]} // Daily point options
-      />
+      <Text style={styles.title}>Create New Task</Text>
 
-      {/* --- Weekly Tasks Section --- */}
-      <MissionCard
-        title="Generate New Weekly Mission"
-        tasks={weeklyTasks}
-        setTasks={setWeeklyTasks}
-        newTask={newWeeklyTask}
-        setNewTask={setNewWeeklyTask}
-        editingTask={editingWeeklyTask}
-        setEditingTask={setEditingWeeklyTask}
-        pointOptions={[100, 150]} // Weekly point options
-      />
+      {/* Class Selection */}
+      <View style={styles.myClassCard}>
+        <Text style={styles.myClassSectionTitle}>Select Class</Text>
+        {availableClasses.length > 0 ? (
+          <FlatList
+            data={availableClasses}
+            horizontal
+            keyExtractor={(item) => item.id.toString()}
+            renderItem={renderClassPickerItem}
+            contentContainerStyle={localStyles.classPickerContainer}
+            showsHorizontalScrollIndicator={false}
+          />
+        ) : (
+          <Text style={styles.myClassEmptyText}>No classes found.</Text>
+        )}
+        {selectedClassId && (
+          <Text style={styles.myClassEmptyText}>
+            Selected:{" "}
+            {
+              availableClasses.find((c) => c.id === selectedClassId)?.class_name
+            }
+          </Text>
+        )}
+      </View>
 
-      {/* --- Event Tasks Section --- */}
-      <MissionCard
-        title="Generate New Event Mission"
-        tasks={eventTasks}
-        setTasks={setEventTasks}
-        newTask={newEventTask}
-        setNewTask={setNewEventTask}
-        editingTask={editingEventTask}
-        setEditingTask={setEditingEventTask}
-        pointOptions={[300, 500]} // Event point options
-      />
+      {/* Task Type Selection */}
+      <View style={styles.myClassCard}>
+        <Text style={styles.myClassSectionTitle}>Task Type</Text>
+        <View style={localStyles.taskTypeContainer}>
+          {["daily", "weekly", "event"].map((type) => (
+            <TouchableOpacity
+              key={type}
+              style={[
+                localStyles.taskTypeButton,
+                taskType === type && localStyles.taskTypeButtonSelected,
+              ]}
+              onPress={() => setTaskType(type)}
+            >
+              <Text
+                style={[
+                  localStyles.taskTypeButtonText,
+                  taskType === type && localStyles.taskTypeButtonTextSelected,
+                ]}
+              >
+                {type.charAt(0).toUpperCase() + type.slice(1)}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
 
-      {/* --- Action Buttons --- */}
+      {/* Task Details */}
+      <View style={styles.myClassCard}>
+        <Text style={styles.myClassSectionTitle}>Task Details</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Enter task name"
+          value={newTaskName}
+          onChangeText={setNewTaskName}
+        />
+        <TextInput
+          style={styles.input}
+          placeholder="Points (e.g., 100)"
+          value={newTaskPoints}
+          onChangeText={setNewTaskPoints}
+          keyboardType="numeric"
+        />
+      </View>
+
+      {/* Assigned Students Preview */}
+      {studentsInClass.length > 0 && (
+        <View style={styles.myClassCard}>
+          <Text style={styles.myClassSectionTitle}>
+            Students to Assign ({studentsInClass.length})
+          </Text>
+          <Text style={styles.myClassEmptyText}>
+            This task will be assigned to all {studentsInClass.length} students
+            in the selected class.
+          </Text>
+        </View>
+      )}
+
+      {/* Action Buttons */}
       <View style={styles.actionButtonsContainer}>
         <TouchableOpacity
-          style={[styles.actionButton, styles.cancelButton]}
+          style={[styles.myClassButton, styles.cancelButton]}
           onPress={() => navigation.goBack()}
         >
-          <Text style={[styles.actionButtonText, styles.cancelButtonText]}>
-            Cancel
-          </Text>
+          <Text style={styles.myClassButtonText}>Cancel</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={styles.actionButton}
-          onPress={handleSaveAllTasks}
+          style={styles.myClassButton}
+          onPress={handleCreateTask}
+          disabled={loading}
         >
-          <Text style={styles.actionButtonText}>Save All</Text>
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.myClassButtonText}>Create & Assign Task</Text>
+          )}
         </TouchableOpacity>
       </View>
     </ScrollView>
   );
 };
+
+// --- ADDED: Local Styles specific to CreateTaskScreen ---
+const localStyles = StyleSheet.create({
+  classPickerContainer: {
+    flexDirection: "row",
+    paddingVertical: 10,
+  },
+  classPickerButton: {
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    marginHorizontal: 5,
+    borderRadius: 20,
+    backgroundColor: "#e0e0e0",
+  },
+  classPickerButtonSelected: {
+    backgroundColor: "#4F74B8",
+  },
+  classPickerButtonText: {
+    color: "#333",
+    fontWeight: "500",
+  },
+  classPickerButtonTextSelected: {
+    color: "#fff",
+  },
+  taskTypeContainer: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    marginVertical: 10,
+  },
+  taskTypeButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    backgroundColor: "#e0e0e0",
+  },
+  taskTypeButtonSelected: {
+    backgroundColor: "#4F74B8",
+  },
+  taskTypeButtonText: {
+    color: "#333",
+    fontWeight: "500",
+  },
+  taskTypeButtonTextSelected: {
+    color: "#fff",
+  },
+});
 
 export default CreateTaskScreen;

@@ -1,4 +1,5 @@
-import React, { useState, useCallback } from "react";
+// Screen/StudentTasksScreen.js
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -7,52 +8,60 @@ import {
   Alert,
   ActivityIndicator,
   StyleSheet,
+  Image,
 } from "react-native";
 import { supabase } from "../supabaseClient";
 import styles from "../Style/Homestyle";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 
 const StudentTasksScreen = () => {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [updatingTaskId, setUpdatingTaskId] = useState(null); // Track which task is being updated
+  const navigation = useNavigation();
 
-  const fetchTasks = useCallback(async () => {
+  // Fetch tasks assigned to the student
+  const fetchStudentTasks = useCallback(async () => {
     setLoading(true);
     try {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (!user) throw new Error("User not found");
+      if (!user) throw new Error("No user found");
 
-      const today = new Date().toISOString().split("T")[0]; // Get today's date as YYYY-MM-DD
-
-      // Fetch tasks assigned to the current student
-      // Include points_value and due_date from the joined tasks table
-      const { data, error } = await supabase
+      // Fetch tasks assigned to the student, including completion status and task details
+      const { data: studentTasks, error: tasksError } = await supabase
         .from("student_tasks")
         .select(
-          "id, is_completed, tasks (id, name, type, points_value, due_date)"
-        ) // Fetch task type, points, and due_date
+          `
+          id,
+          is_completed,
+          assigned_at,
+          tasks (
+            id,
+            name,
+            points_value,
+            type,
+            created_at
+          )
+        `
+        )
         .eq("student_id", user.id)
-        .eq("is_completed", false); // Only show uncompleted tasks
-      // We'll filter daily tasks by date on the client-side for simplicity here
-      // For other task types, due_date might be null or further in the future
-      if (error) throw error;
+        .order("assigned_at", { ascending: false }); // Show newest assigned first
 
-      // Client-side filtering for daily tasks with due_date
-      const filteredTasks = (data || []).filter((assignment) => {
-        const task = assignment.tasks;
-        if (!task) return false; // In case task relation fails
+      if (tasksError) throw tasksError;
 
-        if (task.type === "daily") {
-          // Only show daily tasks if their due_date is today or in the future
-          return task.due_date && task.due_date >= today;
-        }
-        // For weekly/event or other types, always show if uncompleted
-        return true;
-      });
+      // Map and filter valid tasks
+      const mappedTasks = (studentTasks || [])
+        .map((st) => ({
+          student_task_id: st.id, // ID in student_tasks table
+          is_completed: st.is_completed,
+          assigned_at: st.assigned_at,
+          ...(st.tasks || {}), // Spread task details
+        }))
+        .filter((task) => task.id); // Filter out tasks where the relation failed
 
-      setTasks(filteredTasks);
+      setTasks(mappedTasks);
     } catch (error) {
       Alert.alert("Error", "Could not fetch tasks: " + error.message);
     } finally {
@@ -60,141 +69,187 @@ const StudentTasksScreen = () => {
     }
   }, []);
 
+  // Refresh tasks when screen comes into focus
   useFocusEffect(
     useCallback(() => {
-      fetchTasks();
-    }, [fetchTasks])
+      fetchStudentTasks();
+    }, [fetchStudentTasks])
   );
 
-  const handleToggleTask = async (studentTaskId, currentStatus) => {
-    // You would likely add points earning logic here later
+  // Toggle task completion status
+  const handleToggleTaskCompletion = async (studentTaskId, currentStatus) => {
+    setUpdatingTaskId(studentTaskId);
     try {
       const { error } = await supabase
         .from("student_tasks")
-        .update({ is_completed: !currentStatus })
+        .update({ is_completed: !currentStatus, completed_at: new Date() }) // Set completion timestamp
         .eq("id", studentTaskId);
 
       if (error) throw error;
-      fetchTasks(); // Refresh list to show the change
-      // TODO: Add logic here to award points if task is marked complete
+
+      // Refresh the task list to reflect the change
+      fetchStudentTasks();
     } catch (error) {
-      Alert.alert("Error", "Could not update task: " + error.message);
+      Alert.alert(
+        "Error",
+        `Could not update task status: ${error.message}`
+      );
+    } finally {
+      setUpdatingTaskId(null);
     }
   };
 
-  if (loading) {
+  // Render a single task item
+  const renderTaskItem = ({ item }) => {
+    const isUpdating = updatingTaskId === item.student_task_id;
     return (
-      <ActivityIndicator style={{ flex: 1 }} size="large" color="#4F74B8" />
-    );
-  }
-
-  const renderTaskItem = ({ item }) => (
-    <View style={localStyles.taskItem}>
-      <Text
+      <View
         style={[
-          localStyles.taskName,
-          item.is_completed && localStyles.completedTaskName,
+          styles.myClassCard,
+          localStyles.taskItem,
+          item.is_completed && localStyles.completedTaskItem,
         ]}
       >
-        {item.tasks.name}
-      </Text>
-      <View style={localStyles.taskActions}>
-        {/* Display points */}
-        {item.tasks.points_value > 0 && (
-          <View style={localStyles.pointDisplay}>
-            <Text style={localStyles.pointText}>
-              {item.tasks.points_value}p
-            </Text>
-          </View>
-        )}
-        <TouchableOpacity
-          onPress={() => handleToggleTask(item.id, item.is_completed)}
-        >
-          <View
+        <View style={localStyles.taskInfo}>
+          <Text
             style={[
-              localStyles.checkbox,
-              item.is_completed && localStyles.checkedbox,
+              styles.myClassSectionTitle,
+              item.is_completed && localStyles.completedTaskText,
             ]}
           >
-            {item.is_completed && <Text style={localStyles.checkmark}>✓</Text>}
+            {item.name}
+          </Text>
+          <View style={localStyles.taskMeta}>
+            <Text style={localStyles.taskType}>{item.type}</Text>
+            <Text style={localStyles.taskPoints}>{item.points_value}p</Text>
           </View>
+          <Text style={localStyles.taskDate}>
+            Assigned: {new Date(item.assigned_at).toLocaleDateString()}
+          </Text>
+        </View>
+        <TouchableOpacity
+          style={[
+            localStyles.checkbox,
+            item.is_completed && localStyles.checkedBox,
+          ]}
+          onPress={() =>
+            handleToggleTaskCompletion(
+              item.student_task_id,
+              item.is_completed
+            )
+          }
+          disabled={isUpdating || item.is_completed} // Disable if updating or already completed
+        >
+          {isUpdating ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : item.is_completed ? (
+            <Text style={localStyles.checkmark}>✓</Text>
+          ) : null}
         </TouchableOpacity>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <View style={styles.myClassContainer}>
       <Text style={styles.myClassTitle}>My Tasks</Text>
-      <FlatList
-        data={tasks}
-        renderItem={renderTaskItem}
-        keyExtractor={(item) => item.id.toString()}
-        contentContainerStyle={{ paddingHorizontal: 15 }}
-        ListEmptyComponent={
-          <Text style={styles.myClassEmptyText}>No tasks assigned yet.</Text>
-        }
-      />
+
+      {loading ? (
+        <View style={localStyles.loadingContainer}>
+          <ActivityIndicator size="large" color="#4F74B8" />
+          <Text style={localStyles.loadingText}>Loading your tasks...</Text>
+        </View>
+      ) : tasks.length > 0 ? (
+        <FlatList
+          data={tasks}
+          renderItem={renderTaskItem}
+          keyExtractor={(item) => item.student_task_id.toString()}
+          contentContainerStyle={{ paddingHorizontal: 15, paddingBottom: 20 }}
+        />
+      ) : (
+        <View style={[styles.myClassCard, { marginHorizontal: 15 }]}>
+          <Text style={styles.myClassEmptyText}>
+            You haven't been assigned any tasks yet. Check back later or contact
+            your admin.
+          </Text>
+        </View>
+      )}
     </View>
   );
 };
 
+// Local Styles specific to this component
 const localStyles = StyleSheet.create({
-  taskItem: {
-    backgroundColor: "#fff",
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
     padding: 20,
-    marginVertical: 8,
-    borderRadius: 10,
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: "#666",
+  },
+  taskItem: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    elevation: 2,
+    padding: 15,
+    marginVertical: 8,
+    backgroundColor: "#fff",
+    borderRadius: 10,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
-    shadowRadius: 1.5,
+    shadowRadius: 2,
+    elevation: 2,
   },
-  taskName: {
-    fontSize: 16,
-    flexShrink: 1, // Allow text to wrap
+  completedTaskItem: {
+    opacity: 0.7,
+  },
+  taskInfo: {
+    flex: 1,
     marginRight: 10,
   },
-  completedTaskName: {
+  completedTaskText: {
     textDecorationLine: "line-through",
-    color: "grey",
+    color: "#888",
   },
-  taskActions: {
+  taskMeta: {
     flexDirection: "row",
-    alignItems: "center",
+    justifyContent: "space-between",
+    marginVertical: 5,
   },
-  pointDisplay: {
-    // Style for the displayed points on student side
-    backgroundColor: "#e0e0e0", // Match admin side for consistency
-    borderRadius: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    marginRight: 10, // Space between points and checkbox
-  },
-  pointText: {
+  taskType: {
     fontSize: 12,
-    color: "#555",
+    color: "#4F74B8",
+    fontStyle: "italic",
+  },
+  taskPoints: {
+    fontSize: 12,
     fontWeight: "bold",
+    color: "#27ae60",
+  },
+  taskDate: {
+    fontSize: 10,
+    color: "#999",
   },
   checkbox: {
-    width: 28,
-    height: 28,
-    borderRadius: 5,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     borderWidth: 2,
     borderColor: "#4F74B8",
     justifyContent: "center",
     alignItems: "center",
   },
-  checkedbox: {
+  checkedBox: {
     backgroundColor: "#4F74B8",
   },
   checkmark: {
     color: "white",
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: "bold",
   },
 });
