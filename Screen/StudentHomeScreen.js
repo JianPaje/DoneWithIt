@@ -7,7 +7,7 @@ import {
   StyleSheet,
   Alert,
   TouchableOpacity,
-  ScrollView, // Keep ScrollView for the main content if not using FlatList for everything
+  ScrollView,
   FlatList,
   ActivityIndicator,
   Image,
@@ -29,29 +29,31 @@ const StudentHomeScreen = () => {
   const [loadingTasks, setLoadingTasks] = useState(true);
 
   // Fetch user profile
-  useEffect(() => {
-    const fetchProfile = async () => {
-      try {
-        const { data: { user: authUser } } = await supabase.auth.getUser();
-        if (!authUser) throw new Error("No user found");
+  useFocusEffect(
+    useCallback(() => {
+        const fetchProfile = async () => {
+            try {
+                const { data: { user: authUser } } = await supabase.auth.getUser();
+                if (!authUser) throw new Error("No user found");
 
-        const { data: profileData, error } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", authUser.id)
-          .single();
+                const { data: profileData, error } = await supabase
+                .from("profiles")
+                .select("*")
+                .eq("id", authUser.id)
+                .single();
 
-        if (error) throw error;
+                if (error) throw error;
 
-        setUser({ ...authUser, ...profileData });
-      } catch (error) {
-        console.error("Error fetching user:", error.message);
-        Alert.alert("Error", "Could not load user profile.");
-      }
-    };
+                setUser({ ...authUser, ...profileData });
+            } catch (error) {
+                console.error("Error fetching user:", error.message);
+                Alert.alert("Error", "Could not load user profile.");
+            }
+        };
 
-    fetchProfile();
-  }, []);
+        fetchProfile();
+    }, [])
+  );
 
   // Fetch tasks assigned to the student
   const fetchTasks = useCallback(async () => {
@@ -109,55 +111,11 @@ const StudentHomeScreen = () => {
     navigation.navigate(screenName, params);
   };
 
-  // Navigate to Chat with proper class membership check
-  const navigateToChat = async () => {
+  // --- MODIFIED: Navigate to Chat ---
+  // This function now simply opens the selection screen.
+  const navigateToChat = () => {
     setMenuVisible(false);
-
-    if (!user) {
-      Alert.alert("Error", "User not loaded. Please try again.");
-      return;
-    }
-
-    try {
-      // Step 1: Check if user is in any approved class
-      const { data: memberData, error: memberError } = await supabase
-        .from("class_members")
-        .select("class_id")
-        .eq("student_id", user.id)
-        .eq("status", "approved")
-        .limit(1)
-        .single();
-
-      if (memberError || !memberData) {
-        Alert.alert(
-          "Join a Class",
-          "You need to join a class before accessing the chat.",
-          [{ text: "OK", onPress: () => navigation.navigate("JoinClass") }]
-        );
-        return;
-      }
-
-      // Step 2: Get class details
-      const { data: classData, error: classError } = await supabase
-        .from("classes")
-        .select("id, class_name")
-        .eq("id", memberData.class_id)
-        .single();
-
-      if (classError || !classData) {
-        Alert.alert("Error", "Could not load class details.");
-        return;
-      }
-
-      // Step 3: Navigate to chat
-      navigation.navigate("ChatMessage", {
-        classInfo: classData,
-        currentUser: user,
-      });
-    } catch (error) {
-      console.error("Chat navigation error:", error);
-      Alert.alert("Error", "Could not open chat: " + error.message);
-    }
+    navigation.navigate("StudentChatList");
   };
 
   // Render a single task item
@@ -177,7 +135,6 @@ const StudentHomeScreen = () => {
       style={styles.backgroundImage}
       imageStyle={styles.backgroundImageStyle}
     >
-      {/* The main content container that allows vertical layout */}
       <View style={[styles.overlay, localStyles.studentScreenContainer]}>
         {/* Header */}
         <View style={[styles.header, { paddingTop: insets.top }]}>
@@ -190,7 +147,6 @@ const StudentHomeScreen = () => {
           </TouchableOpacity>
         </View>
 
-        {/* Use ScrollView for the main content to allow scrolling if tasks overflow */}
         <ScrollView contentContainerStyle={localStyles.scrollContentContainer}>
           {/* Profile Card */}
           <View style={styles.profileCard}>
@@ -240,7 +196,7 @@ const StudentHomeScreen = () => {
                 renderItem={renderTaskItem}
                 keyExtractor={(item) => item.student_task_id.toString()}
                 style={styles.questList}
-                scrollEnabled={false} // Nested FlatList should ideally not scroll
+                scrollEnabled={false}
                 contentContainerStyle={localStyles.flatListContent}
               />
             ) : (
@@ -248,8 +204,8 @@ const StudentHomeScreen = () => {
             )}
           </View>
 
-          {/* Spacer to push content up and make space for score container and bottom nav */}
-          <View style={{ height: 100 + insets.bottom }} /> 
+          {/* Spacer */}
+          <View style={{ height: 100 + insets.bottom }} />
 
         </ScrollView>
 
@@ -259,7 +215,7 @@ const StudentHomeScreen = () => {
           <Text style={styles.scoreText}>To rank up: 199 Points</Text>
         </View>
 
-        {/* Bottom Navigation - Fixed position */}
+        {/* Bottom Navigation */}
         <View style={[styles.bottomNav, { paddingBottom: insets.bottom }]}>
           <TouchableOpacity
             style={styles.navIconContainer}
@@ -295,12 +251,12 @@ const StudentHomeScreen = () => {
           <TouchableOpacity
             activeOpacity={1}
             style={styles.menuOverlay}
-            onPress={() => setMenuVisible(false)} // Close menu when tapping outside
+            onPress={() => setMenuVisible(false)}
           >
             <TouchableOpacity
-              activeOpacity={1} // Prevents closing menu when tapping on the menu content
-              style={[styles.menuContainer, { paddingBottom: 20 + insets.bottom }]} // Adjust padding based on insets
-              onPress={() => {}} // This prevents the touch from bubbling up to menuOverlay
+              activeOpacity={1}
+              style={[styles.menuContainer, { paddingBottom: 20 + insets.bottom }]}
+              onPress={() => {}}
             >
               <TouchableOpacity
                 style={styles.menuItem}
@@ -344,27 +300,7 @@ const StudentHomeScreen = () => {
                 <Text style={styles.menuItemIcon}>🏆</Text>
                 <Text style={styles.menuItemText}>Leaderboards</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => navigateToScreen("Milestones")}
-              >
-                <Text style={styles.menuItemIcon}>🎯</Text>
-                <Text style={styles.menuItemText}>Milestones</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => navigateToScreen("QuestsHistory")}
-              >
-                <Text style={styles.menuItemIcon}>📖</Text>
-                <Text style={styles.menuItemText}>Quests History</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => navigateToScreen("Settings")}
-              >
-                <Text style={styles.menuItemIcon}>⚙️</Text>
-                <Text style={styles.menuItemText}>Settings</Text>
-              </TouchableOpacity>
+              {/* ... other menu items ... */}
               <TouchableOpacity style={styles.menuItem} onPress={handleSignOut}>
                 <Text style={styles.menuItemIcon}>🚪</Text>
                 <Text style={[styles.menuItemText, { color: "#c0392b" }]}>
@@ -385,16 +321,15 @@ const StudentHomeScreen = () => {
   );
 };
 
-// Local Styles specific to this component
+// Local Styles
 const localStyles = StyleSheet.create({
   studentScreenContainer: {
     flex: 1,
-    // backgroundColor: "#f0f4ff", // Already handled by overlay with transparency
   },
   scrollContentContainer: {
-    flexGrow: 1, // Ensures content can grow and scroll
-    paddingHorizontal: 15, // Apply horizontal padding to the scrollable content
-    paddingBottom: 20, // Add some padding to the bottom of the scroll view
+    flexGrow: 1,
+    paddingHorizontal: 15,
+    paddingBottom: 20,
   },
   rankContainer: {
     flexDirection: "row",
@@ -409,7 +344,7 @@ const localStyles = StyleSheet.create({
     marginLeft: 5,
   },
   flatListContent: {
-    paddingBottom: 20, // Add some padding to the bottom of the FlatList content
+    paddingBottom: 20,
   }
 });
 

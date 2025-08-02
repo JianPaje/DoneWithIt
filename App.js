@@ -31,7 +31,9 @@ import JoinClassScreen from "./Screen/JoinClassScreen";
 import StudentMyClassScreen from "./Screen/StudentMyClassScreen";
 import AdminMyClassScreen from "./Screen/AdminMyClassScreen";
 import AdminClassDetailScreen from "./Screen/AdminClassDetailScreen";
-import StudentTasksScreen from "./Screen/StudentTasksScreen"; // NEW IMPORT
+import StudentTasksScreen from "./Screen/StudentTasksScreen";
+import StudentChatListScreen from './Screen/StudentChatListScreen';
+import AdminChatListScreen from './Screen/AdminChatListScreen';
 
 const linking = {
   prefixes: ["proactive://"],
@@ -93,7 +95,7 @@ export default function App() {
         <Stack.Navigator
           initialRouteName="Splash"
           screenOptions={{
-            headerShown: false,
+            headerShown: true,
             headerStyle: {
               backgroundColor: "#f0f4ff",
               elevation: 0,
@@ -104,115 +106,132 @@ export default function App() {
             headerBackTitleVisible: false,
           }}
         >
-          {/* Main Screens */}
-          <Stack.Screen name="Splash" component={SplashScreenComponent} />
-          <Stack.Screen name="Welcome" component={WelcomeScreen} />
-          <Stack.Screen name="AdminHome" component={AdminHomeScreen} />
-          <Stack.Screen name="StudentHome" component={StudentHomeScreen} />
+          {/* Screens with hidden headers */}
+          <Stack.Screen name="Splash" component={SplashScreenComponent} options={{ headerShown: false }} />
+          <Stack.Screen name="Welcome" component={WelcomeScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="AdminHome" component={AdminHomeScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="StudentHome" component={StudentHomeScreen} options={{ headerShown: false }} />
 
           {/* Auth Screens */}
           <Stack.Screen
             name="Signup"
             component={SignupScreen}
-            options={{ headerShown: true, title: "" }}
+            options={{ title: "" }}
           />
           <Stack.Screen
             name="Login"
             component={LoginScreen}
-            options={{ headerShown: true, title: "" }}
+            options={{ title: "" }}
           />
           <Stack.Screen
             name="ForgotPassword"
             component={ForgotPasswordScreen}
-            options={{ headerShown: true, title: "Reset Password" }}
+            options={{ title: "Reset Password" }}
           />
 
           {/* Profile Edit Screens */}
           <Stack.Screen
             name="ProfileEdit"
             component={ProfileEditScreen}
-            options={{ headerShown: true, title: "Edit Profile" }}
+            options={{ title: "Edit Profile" }}
           />
           <Stack.Screen
             name="AdminProfileEdit"
             component={AdminProfileEditScreen}
-            options={{ headerShown: true, title: "Edit Admin Profile" }}
+            options={{ title: "Edit Admin Profile" }}
           />
 
           {/* Feature Screens */}
+          {/* --- CHANGE IS HERE --- */}
           <Stack.Screen
             name="ChatMessage"
             component={ChatMessageScreen}
-            options={{ headerShown: true, title: "Messages" }}
+            // We change the options to be a function that gets the title from the route parameters
+            options={({ route }) => ({
+              title: route.params?.classInfo?.class_name || 'Chat',
+            })}
           />
+          {/* --- END OF CHANGE --- */}
           <Stack.Screen
             name="Leaderboards"
             component={LeaderboardsScreen}
-            options={{ headerShown: true, title: "Leaderboards" }}
+            options={{ title: "Leaderboards" }}
           />
           <Stack.Screen
             name="CreateTask"
             component={CreateTaskScreen}
-            options={{ headerShown: true, title: "Create Task" }}
+            options={{ title: "Create Task" }}
           />
           <Stack.Screen
             name="StudentProgress"
             component={StudentProgressScreen}
-            options={{ headerShown: true, title: "Student Progress" }}
+            options={{ title: "Student Progress" }}
           />
           <Stack.Screen
             name="ActivityLogs"
             component={ActivityLogsScreen}
-            options={{ headerShown: true, title: "Activity Logs" }}
+            options={{ title: "Activity Logs" }}
           />
           <Stack.Screen
             name="Settings"
             component={SettingsScreen}
-            options={{ headerShown: true, title: "Settings" }}
+            options={{ title: "Settings" }}
           />
           <Stack.Screen
             name="QuestsHistory"
             component={QuestsHistoryScreen}
-            options={{ headerShown: true, title: "Quests History" }}
+            options={{ title: "Quests History" }}
           />
           <Stack.Screen
             name="Milestones"
             component={MilestonesScreen}
-            options={{ headerShown: true, title: "Milestones" }}
+            options={{ title: "Milestones" }}
           />
           <Stack.Screen
             name="CreateClass"
             component={CreateClassScreen}
-            options={{ headerShown: true, title: "Create a Class" }}
+            options={{ title: "Create a Class" }}
           />
           <Stack.Screen
             name="JoinClass"
             component={JoinClassScreen}
-            options={{ headerShown: true, title: "Join Class" }}
+            options={{ title: "Join Class" }}
           />
           <Stack.Screen
             name="StudentMyClass"
             component={StudentMyClassScreen}
-            options={{ headerShown: true, title: "My Class" }}
+            options={{ title: "My Class" }}
           />
           <Stack.Screen
             name="AdminMyClass"
             component={AdminMyClassScreen}
-            options={{ headerShown: true, title: "My Class" }}
+            options={{ title: "My Class" }}
           />
           <Stack.Screen
             name="AdminClassDetail"
             component={AdminClassDetailScreen}
             options={({ route }) => ({
-              headerShown: true,
               title: route.params?.className || "Class Details",
             })}
           />
-          {/* NEW STUDENT TASK SCREEN */}
           <Stack.Screen
             name="StudentTasks"
             component={StudentTasksScreen}
-            options={{ headerShown: true, title: "My Tasks" }}
+            options={{ title: "My Tasks" }}
+          />
+          <Stack.Screen 
+            name="StudentChatList" 
+            component={StudentChatListScreen} 
+            options={{ 
+                title: 'Select a Class Chat' 
+            }} 
+          />
+          <Stack.Screen 
+            name="AdminChatList" 
+            component={AdminChatListScreen} 
+            options={{ 
+                title: 'Select a Class Chat' 
+            }}
           />
         </Stack.Navigator>
       </NavigationContainer>

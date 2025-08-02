@@ -1,3 +1,4 @@
+// Screen/AdminHomeScreen.js
 import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
@@ -13,7 +14,7 @@ import {
 import { Calendar } from "react-native-calendars";
 import styles from "../Style/Homestyle";
 import { supabase } from "../supabaseClient";
-import { useNavigation, useFocusEffect } from "@react-navigation/native"; // MODIFIED IMPORT
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { AnimatedCircularProgress } from "react-native-circular-progress";
 
 const AdminHomeScreen = () => {
@@ -119,7 +120,6 @@ const AdminHomeScreen = () => {
     }
   }, []);
 
-  // CORRECTED: Replaced useEffect with useFocusEffect using the correct pattern
   useFocusEffect(
     useCallback(() => {
       fetchDashboardData();
@@ -201,6 +201,7 @@ const AdminHomeScreen = () => {
             Welcome Back! Here is an overview of your class today.
           </Text>
 
+          {/* --- THIS IS THE DASHBOARD CONTENT THAT WAS ACCIDENTALLY REMOVED AND IS NOW RESTORED --- */}
           <View style={styles.adminContentContainer}>
             <View style={styles.adminSearchRow}>
               <View style={styles.adminSearchWrapper}>
@@ -325,6 +326,7 @@ const AdminHomeScreen = () => {
               markedDates={markedDates}
             />
           </View>
+          {/* --- END OF RESTORED CONTENT --- */}
         </ScrollView>
       </ImageBackground>
 
@@ -354,6 +356,16 @@ const AdminHomeScreen = () => {
                   <Text style={styles.adminMenuItemIcon}>🏫</Text>
                   <Text style={styles.adminMenuItemText}>My Class</Text>
                 </TouchableOpacity>
+                
+                {/* --- The Class Chat menu item is still here --- */}
+                <TouchableOpacity
+                    style={styles.adminMenuItem}
+                    onPress={() => navigateToScreen("AdminChatList")}
+                >
+                    <Text style={styles.adminMenuItemIcon}>💬</Text>
+                    <Text style={styles.adminMenuItemText}>Class Chat</Text>
+                </TouchableOpacity>
+
                 <TouchableOpacity
                   style={styles.adminMenuItem}
                   onPress={() => navigateToScreen("StudentProgress")}
