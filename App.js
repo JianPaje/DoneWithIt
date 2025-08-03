@@ -34,6 +34,7 @@ import AdminClassDetailScreen from "./Screen/AdminClassDetailScreen";
 import StudentTasksScreen from "./Screen/StudentTasksScreen";
 import StudentChatListScreen from './Screen/StudentChatListScreen';
 import AdminChatListScreen from './Screen/AdminChatListScreen';
+import TaskApprovalScreen from './Screen/TaskApprovalScreen';
 
 const linking = {
   prefixes: ["proactive://"],
@@ -233,6 +234,11 @@ export default function App() {
                 title: 'Select a Class Chat' 
             }}
           />
+		  <Stack.Screen 
+			name="TaskApproval" 
+			component={TaskApprovalScreen} 
+			options={{ title: 'Task Approvals' }}
+		  />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>
